@@ -23,3 +23,22 @@ Run `node --expose-gc test/history-streaming-bench.ts` for median/P95, sampled h
 | Alternating width | 32.354 | 36.265 |
 
 Final parse samples were 6.724 ms (Markdown), 98.482 ms (long line), 3.902 ms (code). They are single samples, not distributions. Static median improved about 17%, below the experimental 20% target; this comparison isolates document flattening and is not an end-to-end before/after claim. Sampled static heap peak delta decreased from 39.4 MB to 16.7 MB. Timing and GC vary substantially between runs. Full scanning, component checks, changed-root reconstruction and final synchronous parsing remain costs.
+
+## Follow-up: incremental long-line wrapping experiment
+
+The checkpoint prototype was implemented and tested, then removed under the plan's performance fallback rule. Public interfaces remain unchanged. The retained change fixes unfinished-line cache reuse and sanitizes the whole plain prefix before checking reuse, so completed escape sequences cannot leave stale visible fragments.
+
+Three alternating runs against isolated commit f7bf042 used 2,500 historical messages, an initial 60,000-unit emoji line, 32 appended units per frame, 20 warmup and 200 measured frames. Median of the three per-run statistics:
+
+| Implementation | Median ms | P95 ms | Result rows / cold rows |
+|---|---:|---:|---:|
+| Original baseline | 0.594 | 0.897 | 970 / 838 (incorrect) |
+| Checkpoint prototype (removed) | 0.580 | 1.566 | 838 / 838 |
+
+The prototype improved median by only 2.3% and worsened P95 by about 75%, failing the required 20% median improvement and at-most-10% P95 regression. Post-GC heap delta fell from about 28.1 MB to 0.30 MB, but this cannot override the timing acceptance gate. The baseline is faster partly because it incorrectly treats unfinished text as immutable, so its timing is not a valid correctness-equivalent reference.
+
+Per the agreed fallback, retain only the correctness fix and new regression tests. Unfinished long lines are rebuilt, so this fallback does not claim incremental wrapping performance or bounded wrapping work. Existing newline-terminated prefix reuse remains. The full size/type benchmark matrix and 100/5,000-update retention gate were not pursued after the prototype failed its primary gate. No new persistent cache is present in the retained implementation.
+
+Run `node --expose-gc test/markdown-append-bench.ts` to reproduce the true-append scenario with heap samples and live/cold row counts. Regression tests cover append partitions, sanitized-prefix changes, Unicode boundaries, invalidation and unchanged previous output arrays. Full comments and normalization scans are retained.
+
+Final retained fallback sample: median 9.546 ms, P95 11.164 ms, 838 live/cold rows, post-GC heap delta 316,800 bytes. This is a correctness repair with an explicit performance cost relative to the incorrect original. Type check, all 10 streaming regression tests, full test suite and independent review passed.
