@@ -1,3 +1,4 @@
+import { renderHistory } from "./render-history.ts";
 import {
 	AltScreenSearchComponent,
 	AltScreenSearchIndex,
@@ -408,7 +409,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 			this.terminal.write(`${BEGIN_SYNCHRONIZED_OUTPUT}${EXIT_ALT_SCREEN}\x1b[?25h${END_SYNCHRONIZED_OUTPUT}`);
 		} else {
 			const width = Math.max(1, this.terminal.columns);
-			const documentLines = this.resolveFakeCursors(this.render(width)).map((line) =>
+			const documentLines = this.resolveFakeCursors(renderHistory(this, width, true)).map((line) =>
 				line.replace(OSC133_ZONE_PREFIX, ""),
 			);
 			this.lastDocument = this.applyLineResets(documentLines.map((line) => line.replaceAll(CURSOR_MARKER, ""))).map(

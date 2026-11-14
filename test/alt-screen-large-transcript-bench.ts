@@ -157,9 +157,17 @@ console.log(`components=${COMPONENT_COUNT} lines=${totalLines} viewport=${termin
 measure("steady", 200, () => {});
 transcript.scrollTo(Math.floor(totalLines / 2));
 measure("scroll", 200, () => transcript.scrollBy(1));
+streamingMarkdown.setStreaming(true);
+try {
 measure("streaming", 100, (frame) => {
 	streamingMarkdown.setText(`${assistantMarkdown}\n\nstream ${"x".repeat(frame + 1)}`);
 });
+} finally {
+ streamingMarkdown.setStreaming(false);
+ const start = performance.now();
+ tui.renderNow();
+ console.log(`final parse: ${(performance.now() - start).toFixed(3)} ms`);
+}
 measure("resize", 10, (frame) => {
 	terminal.columns = frame % 2 === 0 ? COLUMNS - 1 : COLUMNS;
 });

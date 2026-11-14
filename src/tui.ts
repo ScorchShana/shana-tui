@@ -1,3 +1,4 @@
+import { historyMouseLayouts } from "./render-history.ts";
 /**
  * Minimal TUI implementation with differential rendering
  */
@@ -396,8 +397,8 @@ export class Container implements Component {
 	handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
 		if (event.y < 0 || event.y >= event.height) return undefined;
 		const mouseChildren =
-			this.mouseLayout?.width === event.width
-				? this.mouseLayout.children
+			(historyMouseLayouts.get(this) ?? this.mouseLayout)?.width === event.width
+				? (historyMouseLayouts.get(this) ?? this.mouseLayout)!.children
 				: this.children.map((component) => ({ component, height: component.render(event.width).length }));
 		let childY = 0;
 		for (const { component: child, height: childHeight } of mouseChildren) {
@@ -426,6 +427,7 @@ export class Container implements Component {
 			}
 		}
 		this.mouseLayout = { width, children: mouseChildren };
+		historyMouseLayouts.delete(this);
 		return lines;
 	}
 }
