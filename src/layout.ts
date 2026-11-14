@@ -1,3 +1,4 @@
+import { renderHistory } from "./render-history.ts";
 import type { ScrollView } from "./components/scroll-view.ts";
 import { allocateStackSizes, visibleStackEntries } from "./components/stack.ts";
 import { getLayoutNode } from "./layout-node.ts";
@@ -74,7 +75,7 @@ function renderCached(context: LayoutContext, component: Component, width: numbe
 	}
 	let lines = widths.get(safeWidth);
 	if (!lines) {
-		lines = component.render(safeWidth);
+		lines = renderHistory(component, safeWidth);
 		widths.set(safeWidth, lines);
 	}
 	return lines;

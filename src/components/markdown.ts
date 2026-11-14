@@ -3,7 +3,7 @@ import markedCjkFriendly from "marked-cjk-friendly";
 import { renderLatex } from "../latex.ts";
 import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.ts";
 import type { Component } from "../tui.ts";
-import { applyBackgroundToLine, cjkPunctuationRegex, flattenLines, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
+import { applyBackgroundToLine, cjkPunctuationRegex, flattenLines, stripTerminalSequences, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
 
 const STRICT_STRIKETHROUGH_REGEX = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/;
 
@@ -308,6 +308,19 @@ interface RenderedBlock {
 
 export class Markdown implements Component {
 	private text: string;
+	private streaming = false;
+	private preview?: { source: string; width: number; lines: string[]; prefix: string; prefixLines: string[] };
+
+	/** Enable bounded, approximate previews; ending streaming defers exact parsing until render(). */
+	setStreaming(streaming: boolean): void {
+		if (this.streaming === streaming) return;
+		this.streaming = streaming;
+		this.preview = undefined;
+		this.clearRenderCache();
+		// Completion must lex the full current source, even if a weak token entry survives.
+		if (!streaming) this.cachedTokens = undefined;
+	}
+
 	private paddingX: number; // Left/right padding
 	private paddingY: number; // Top/bottom padding
 	private defaultTextStyle?: DefaultTextStyle;
@@ -348,11 +361,13 @@ export class Markdown implements Component {
 	}
 
 	setText(text: string): void {
+		if (this.text === text) return;
 		this.text = text;
 		this.clearRenderCache();
 	}
 
 	invalidate(): void {
+		this.preview = undefined;
 		this.clearRenderCache();
 		// The theme may have changed, which changes every styled line and the default style's prefix.
 		this.blocks = undefined;
@@ -365,7 +380,57 @@ export class Markdown implements Component {
 		this.cachedLines = undefined;
 	}
 
+	private renderPreview(width: number): string[] {
+		if (this.preview?.source === this.text && this.preview.width === width) return this.preview.lines;
+		// Scan the complete source so a comment opened before the syntax window stays hidden.
+		const source = stripHtmlComments(this.text).replace(/\r\n?/g, "\n").replace(/\t/g, "   ");
+		let start = Math.max(0, source.length - 16384);
+		if (start > 0 && /[\uDC00-\uDFFF]/.test(source[start])) start++;
+		let newlines = 0;
+		for (let i = source.length - 1; i >= start; i--) {
+			if (source[i] === "\n" && ++newlines === 32) { start = i + 1; break; }
+		}
+		// Stage only complete logical lines; an oversized line is displayed as plain text.
+		const boundary = source.indexOf("\n", start);
+		if (start > 0) start = boundary < 0 ? source.length : boundary + 1;
+		const prefix = source.slice(0, start);
+		const old = this.preview;
+		const prefixLines = old?.width === width && prefix.startsWith(old.prefix) ? old.prefixLines.slice() : [];
+		const offset = old?.width === width && prefix.startsWith(old.prefix) ? old.prefix.length : 0;
+		const contentWidth = Math.max(1, width - this.paddingX * 2);
+		const plain = stripTerminalSequences(prefix.slice(offset)).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
+		if (plain) {
+			for (const logical of plain.replace(/\n$/, "").split("\n")) {
+				// Bound the input to the ANSI wrapper too: a single streamed code line can be enormous.
+				const wrapped: string[] = [];
+				let carry = "";
+				for (let offset = 0; offset < logical.length;) {
+					let end = Math.min(logical.length, offset + 1024);
+					if (end < logical.length && /[\uDC00-\uDFFF]/.test(logical[end])) end--;
+					const chunk = wrapTextWithAnsi(carry + logical.slice(offset, end), contentWidth);
+					carry = chunk.pop() ?? "";
+					wrapped.push(...chunk);
+					offset = end;
+				}
+				wrapped.push(carry);
+				for (const rawLine of wrapped) {
+					const line = this.applyDefaultStyle(rawLine);
+					const padded = " ".repeat(this.paddingX) + line + " ".repeat(this.paddingX);
+					prefixLines.push(this.defaultTextStyle?.bgColor ? applyBackgroundToLine(padded, width, this.defaultTextStyle.bgColor) : padded + " ".repeat(Math.max(0, width - visibleWidth(padded))));
+				}
+			}
+		}
+		// A separate instance keeps preview tokens and blocks out of exact caches.
+		const tail = new Markdown(source.slice(start), this.paddingX, 0, this.theme, this.defaultTextStyle, this.options).render(width);
+		const blank = this.defaultTextStyle?.bgColor ? applyBackgroundToLine(" ".repeat(width), width, this.defaultTextStyle.bgColor) : " ".repeat(width);
+		const padding = Array.from({ length: this.paddingY }, () => blank);
+		const lines = [...padding, ...prefixLines, ...tail, ...padding];
+		this.preview = { source: this.text, width, lines, prefix, prefixLines };
+		return lines;
+	}
+
 	render(width: number): string[] {
+		if (this.streaming && !this.options.transform) return this.renderPreview(width);
 		// Check cache
 		if (this.cachedLines && this.cachedText === this.text && this.cachedWidth === width) {
 			return this.cachedLines;
