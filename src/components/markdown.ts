@@ -393,12 +393,15 @@ export class Markdown implements Component {
 		// Stage only complete logical lines; an oversized line is displayed as plain text.
 		const boundary = source.indexOf("\n", start);
 		if (start > 0) start = boundary < 0 ? source.length : boundary + 1;
-		const prefix = source.slice(0, start);
+		const prefix = stripTerminalSequences(source.slice(0, start)).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
 		const old = this.preview;
-		const prefixLines = old?.width === width && prefix.startsWith(old.prefix) ? old.prefixLines.slice() : [];
-		const offset = old?.width === width && prefix.startsWith(old.prefix) ? old.prefix.length : 0;
+		// Only newline-terminated text is stable. An unfinished long line must be
+		// wrapped again together with its append, rather than emitting an extra row.
+		const reusable = old?.width === width && old.prefix.endsWith("\n") && prefix.startsWith(old.prefix) ? old : undefined;
+		const prefixLines = reusable ? reusable.prefixLines.slice() : [];
+		const offset = reusable?.prefix.length ?? 0;
 		const contentWidth = Math.max(1, width - this.paddingX * 2);
-		const plain = stripTerminalSequences(prefix.slice(offset)).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
+		const plain = prefix.slice(offset);
 		if (plain) {
 			for (const logical of plain.replace(/\n$/, "").split("\n")) {
 				// Bound the input to the ANSI wrapper too: a single streamed code line can be enormous.

@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Markdown } from '../src/components/markdown.ts';
 import { defaultMarkdownTheme as theme } from './test-themes.ts';
@@ -94,5 +94,43 @@ test('replacement, resize, theme invalidation and reopening retain exact final s
   assert.deepEqual(m.render(60), new Markdown(source, 1, 1, theme).render(60));
   m.setStreaming(true); m.setText('replacement 😀'); m.render(20); m.setStreaming(false);
   assert.deepEqual(m.render(20), new Markdown('replacement 😀', 1, 1, theme).render(20));
+ }
+});
+test('long-line appends equal fresh previews and leave previous output untouched', () => {
+ const m = new Markdown('x'.repeat(20001), 0, 0, theme); m.setStreaming(true);
+ const previous = m.render(80); const saved = previous.slice();
+ let source = 'x'.repeat(20001);
+ for (const addition of ['y', '😀', 'abc'.repeat(400), '\n', 'next', '\r\n', '<!-- hidden -->', '\x1b[31mred']) {
+  source += addition; m.setText(source);
+  const fresh = new Markdown(source, 0, 0, theme); fresh.setStreaming(true);
+  assert.deepEqual(m.render(80), fresh.render(80));
+ }
+ assert.deepEqual(previous, saved);
+});
+test('long-line boundaries and invalidation match cold previews', () => {
+ for (const size of [20000, 60000, 200000]) {
+  const m = new Markdown('', 0, 0, theme); m.setStreaming(true);
+  const internal = m as unknown as {preview?: unknown};
+  let source = 'x'.repeat(size);
+  m.setText(source); m.render(80);
+  for (const addition of ['y', '😀', '中'.repeat(256), '\ud83d', '\ude00', '\u0301', '\u200d😀', ' z', '\n', 'next']) {
+   source += addition; m.setText(source); const result = m.render(80);
+   const fresh = new Markdown(source, 0, 0, theme); fresh.setStreaming(true);
+   assert.deepEqual(result, fresh.render(80));
+  }
+  m.invalidate(); assert.deepEqual(m.render(40), (() => {const f = new Markdown(source,0,0,theme); f.setStreaming(true); return f.render(40);})());
+  m.setStreaming(false); assert.equal(internal.preview, undefined);
+ }
+});
+
+test('append partitions and sanitized-prefix changes match cold previews', () => {
+ const source = 'x'.repeat(18000) + ('ab 😀中文 e\u0301 👩‍💻 ').repeat(200) + '\r\n\n\t<!-- secret -->\x1b[31mred\x1b[0m';
+ for (const stride of [1, 7, 256, 1024]) {
+  const m = new Markdown(source.slice(0,18000),0,0,theme); m.setStreaming(true); m.render(80);
+  for (let end=18000+stride; end<source.length+stride; end+=stride) {
+   const text=source.slice(0,end); m.setText(text);
+   const fresh=new Markdown(text,0,0,theme); fresh.setStreaming(true);
+   assert.deepEqual(m.render(80),fresh.render(80));
+  }
  }
 });
