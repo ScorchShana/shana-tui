@@ -1,5 +1,7 @@
 ﻿# Streaming Markdown implementation and verification
 
+For the public API, lifecycle example, and options, see [Streaming Markdown](README.md#streaming-markdown) and the preceding Markdown reference. This document records implementation details and verification limits.
+
 Public addition: `Markdown.setStreaming(boolean)`. It does not schedule a redraw.
 Callers must end streaming and request their usual render in `finally`, including cancellation and errors. This repository contains no production streaming caller; the transcript benchmark demonstrates the lifecycle.
 

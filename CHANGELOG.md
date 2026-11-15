@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `Markdown.setStreaming(boolean)` for approximate streaming previews. Callers supply accumulated text and request redraws, and must disable streaming on completion, cancellation, or errors to restore full-source rendering. See [Streaming Markdown](README.md#streaming-markdown).
+
 ### Fixed
+
+- Fixed stale wrapping when appending to unfinished long lines in streaming Markdown previews. Unfinished lines are rebuilt for correctness; this does not provide incremental long-line wrapping.
 
 - Fixed fullscreen Kitty images disappearing after a full redraw such as a window resize. Clearing the screen made Kitty free the cached image data that the redraw then tried to reuse ([#12010](https://github.com/earendil-works/pi/issues/12010))
 - Fixed text after a multi-row inline image in Markdown drawing over the image when the image's rows were joined with hard line breaks ([#12017](https://github.com/earendil-works/pi/issues/12017))

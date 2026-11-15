@@ -519,12 +519,20 @@ interface DefaultTextStyle {
   underline?: boolean;
 }
 
+interface MarkdownOptions {
+  preserveOrderedListMarkers?: boolean; // Preserve source list markers
+  preserveBackslashEscapes?: boolean;  // Preserve source backslash escapes
+  transform?: (markdown: string, availableWidth: number) => string;
+  renderLatex?: boolean;               // Render supported math as Unicode (default: true)
+}
+
 const md = new Markdown(
   "# Hello\n\nSome **bold** text",
   1,              // paddingX
   1,              // paddingY
   theme,          // MarkdownTheme
-  defaultStyle    // optional DefaultTextStyle
+  defaultStyle,   // optional DefaultTextStyle
+  options         // optional MarkdownOptions
 );
 md.setText("Updated markdown");
 ```
@@ -535,6 +543,34 @@ md.setText("Updated markdown");
 - Optional syntax highlighting via `highlightCode`
 - Padding support
 - Render caching for performance
+
+#### Streaming Markdown
+
+`setStreaming(true)` enables an approximate preview while text is arriving. Streaming is disabled by default. Pass the complete accumulated source to `setText()`, rather than only the latest delta. Neither setter schedules a redraw; call `tui.requestRender()` after updates.
+
+The following example assumes `md` has been added to the TUI and `deltas` is an application-provided `AsyncIterable<string>`:
+
+```typescript
+let source = "";
+md.setStreaming(true);
+try {
+  for await (const delta of deltas) {
+    source += delta;
+    md.setText(source);
+    tui.requestRender();
+  }
+} finally {
+  // Also finalize after cancellation or errors, preserving the received source.
+  md.setStreaming(false);
+  tui.requestRender();
+}
+```
+
+Ending streaming invalidates the preview; the next render parses the complete current source with the ordinary Markdown renderer. Earlier preview content can temporarily lose formatting as the syntax window advances. When `MarkdownOptions.transform` is configured, rendering continues through the full-source path even with streaming enabled. The transform receives the content width after horizontal padding.
+
+The preview bounds its syntax window, not the total work per update. Source scanning and unfinished long-line wrapping can still grow with the input; this API does not promise constant-time updates or incremental wrapping of long lines. See [streaming implementation and verification](STREAMING-VERIFICATION.md) for limits, measurements, and unverified scenarios.
+
+Markdown reuses rendered lines and highlighted code. Call `md.invalidate()` after changing theme behavior or syntax-highlighting rules, then request a render so cached results are refreshed.
 
 ### Loader
 
@@ -894,6 +930,8 @@ const truncated = truncateToWidth(styled, 8); // Red "Hello" + " W..." with prop
 ### Caching
 
 For performance, components should cache their rendered output and only re-render when necessary:
+
+The renderers also reuse internal history snapshots for built-in containers and leaves. This optimization requires no public cache API; custom components continue to use `render(width)` and their own invalidation. After changing a Markdown theme or its highlighting behavior, call `invalidate()` and request a render.
 
 ```typescript
 class CachedComponent implements Component {
